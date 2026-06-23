@@ -101,6 +101,10 @@ func (c *CLI) ExecuteAdminCommand(cmd *Command) (ResponseIf, error) {
 		return c.AdminSetLicenseConfigCommand(cmd)
 	case "set_variable":
 		return c.SetVariable(cmd)
+	case "admin_set_role_default_model":
+		return c.AdminSetRoleDefaultModelsCommand(cmd)
+	case "admin_reset_role_default_model":
+		return c.AdminResetRoleDefaultModelsCommand(cmd)
 	case "list_user_datasets":
 		return c.ListUserDatasets(cmd)
 	case "admin_list_resources_command":
@@ -121,6 +125,8 @@ func (c *CLI) ExecuteAdminCommand(cmd *Command) (ResponseIf, error) {
 		return c.ListInstanceModels(cmd)
 	case "admin_show_model":
 		return c.CommonShowModel(cmd)
+	case "admin_list_providers":
+		return c.AdminListProvidersCommand(cmd)
 	case "admin_list_all_models":
 		return c.ListAllModels(cmd)
 	case "list_admin_tasks":
@@ -153,6 +159,8 @@ func (c *CLI) ExecuteAdminCommand(cmd *Command) (ResponseIf, error) {
 		return c.AdminShowUserCommand(cmd)
 	case "admin_show_role":
 		return c.AdminShowRoleCommand(cmd)
+	case "admin_show_role_default_models":
+		return c.AdminShowRoleDefaultModelsCommand(cmd)
 	case "admin_show_user_activity_command":
 		return c.AdminShowUserActivityCommand(cmd)
 	case "admin_show_user_summary_command":
@@ -221,7 +229,19 @@ func (c *CLI) ExecuteAdminCommand(cmd *Command) (ResponseIf, error) {
 		return c.AdminStopUserIngestionTasksCommand(cmd)
 	case "admin_remove_user_ingestion_tasks_command":
 		return c.AdminRemoveUserIngestionTasksCommand(cmd)
-	// TODO: Implement other commands
+	case "admin_add_provider":
+		return c.AdminAddProviderCommand(cmd)
+	case "admin_add_model_instance":
+		return c.AdminAddModelInstanceCommand(cmd)
+	case "admin_add_models":
+		return c.AdminAddModelsCommand(cmd)
+	case "admin_delete_model_providers":
+		return c.AdminDeleteProvidersCommand(cmd)
+	case "admin_delete_model_instance":
+		return c.AdminDeleteInstancesCommand(cmd)
+	case "admin_delete_model":
+		return c.AdminDeleteModelsCommand(cmd)
+		// TODO: Implement other commands
 	case "show_admin_server":
 		return c.ShowAdminServer(cmd)
 	case "show_api_server":

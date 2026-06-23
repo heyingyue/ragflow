@@ -736,7 +736,6 @@ func (p *Parser) parseCreateModelProvider() (*Command, error) {
 
 // parseAddProvider parses ADD PROVIDER commands
 // ADD PROVIDER <name>
-// ADD PROVIDER <name> <api_key>
 func (p *Parser) parseAddProvider() (*Command, error) {
 	p.nextToken() // consume PROVIDER
 
@@ -749,16 +748,6 @@ func (p *Parser) parseAddProvider() (*Command, error) {
 	cmd.Params["provider_name"] = providerName
 
 	p.nextToken()
-
-	// Check if api_key is provided (optional)
-	if p.curToken.Type == TokenQuotedString {
-		apiKey, err := p.parseQuotedString()
-		if err != nil {
-			return nil, fmt.Errorf("expected api key: %w", err)
-		}
-		cmd.Params["api_key"] = apiKey
-		p.nextToken()
-	}
 
 	// Semicolon is optional
 	if p.curToken.Type == TokenSemicolon {
@@ -2830,12 +2819,14 @@ optionsLoop:
 	}
 	cmd := NewCommand("chat_to_model")
 
-	if common.IsCompositeModelName(modelNameOrID) {
-		cmd.Params["composite_model_name"] = modelNameOrID
-	} else if common.IsUUID(modelNameOrID) {
-		cmd.Params["model_id"] = modelNameOrID
-	} else {
-		return nil, fmt.Errorf("invalid format of model name or ID: %s", modelNameOrID)
+	if modelNameOrID != "" {
+		if common.IsCompositeModelName(modelNameOrID) {
+			cmd.Params["composite_model_name"] = modelNameOrID
+		} else if common.IsUUID(modelNameOrID) {
+			cmd.Params["model_id"] = modelNameOrID
+		} else {
+			return nil, fmt.Errorf("invalid format of model name or ID: %s", modelNameOrID)
+		}
 	}
 	cmd.Params["messages"] = messages
 	cmd.Params["images"] = images

@@ -150,6 +150,36 @@ func (c *CLI) AdminListRolesCommand(cmd *Command) (ResponseIf, error) {
 	return &result, nil
 }
 
+// AdminListProvidersCommand to list providers command (admin mode only)
+func (c *CLI) AdminListProvidersCommand(cmd *Command) (ResponseIf, error) {
+	if c.Config.CLIMode != AdminMode || c.AdminServerClient.LoginToken == nil {
+		return nil, fmt.Errorf("this command is only allowed in ADMIN mode or already login")
+	}
+
+	apiURL := fmt.Sprintf("/admin/providers")
+
+	resp, err := c.AdminServerClient.Request("GET", apiURL, "admin", nil, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list providers: %w", err)
+	}
+
+	if resp.StatusCode != 200 {
+		return nil, fmt.Errorf("failed to list providers: HTTP %d, body: %s", resp.StatusCode, string(resp.Body))
+	}
+
+	var result CommonResponse
+
+	if err = json.Unmarshal(resp.Body, &result); err != nil {
+		return nil, fmt.Errorf("list providers failed: invalid JSON (%w)", err)
+	}
+
+	if result.Code != 0 {
+		return nil, fmt.Errorf("%s", result.Message)
+	}
+	result.Duration = resp.Duration
+	return &result, nil
+}
+
 // AdminCreateRoleCommand creates a new role (admin mode only)
 func (c *CLI) AdminCreateRoleCommand(cmd *Command) (ResponseIf, error) {
 	if c.Config.CLIMode != AdminMode || c.AdminServerClient.LoginToken == nil {
@@ -1074,6 +1104,107 @@ func (c *CLI) SetVariable(cmd *Command) (ResponseIf, error) {
 	return &result, nil
 }
 
+// AdminSetRoleDefaultModelsCommand set role default models (admin mode only).
+func (c *CLI) AdminSetRoleDefaultModelsCommand(cmd *Command) (ResponseIf, error) {
+	if c.Config.CLIMode != AdminMode || c.AdminServerClient.LoginToken == nil {
+		return nil, fmt.Errorf("this command is only allowed in ADMIN mode or already login")
+	}
+
+	roleName, ok := cmd.Params["role_name"].(string)
+	if !ok {
+		return nil, fmt.Errorf("role_name not provided")
+	}
+
+	modelType, ok := cmd.Params["model_type"].(string)
+	if !ok {
+		return nil, fmt.Errorf("model_type not provided")
+	}
+
+	payload := map[string]interface{}{
+		"model_type": modelType,
+	}
+
+	var modelName string
+	modelID, ok := cmd.Params["model_id"].(string)
+	if ok {
+		payload["model_id"] = modelID
+	} else {
+		modelName, ok = cmd.Params["composite_model_name"].(string)
+		if ok {
+			payload["model_name"] = modelName
+		} else {
+			return nil, fmt.Errorf("model_id or model_name not provided")
+		}
+	}
+
+	endPoint := fmt.Sprintf("/admin/roles/%s/default-models", roleName)
+
+	resp, err := c.AdminServerClient.Request("PATCH", endPoint, "admin", nil, payload)
+	if err != nil {
+		return nil, fmt.Errorf("failed to set role default models: %w", err)
+	}
+
+	if resp.StatusCode != 200 {
+		return nil, fmt.Errorf("failed to set role default models: HTTP %d, body: %s", resp.StatusCode, string(resp.Body))
+	}
+
+	var result CommonDataResponse
+	if err = json.Unmarshal(resp.Body, &result); err != nil {
+		return nil, fmt.Errorf("set role default models failed: invalid JSON (%w)", err)
+	}
+
+	if result.Code != 0 {
+		return nil, fmt.Errorf("%s", result.Message)
+	}
+
+	result.Duration = resp.Duration
+	return &result, nil
+}
+
+// AdminResetRoleDefaultModelsCommand reset role default models (admin mode only).
+func (c *CLI) AdminResetRoleDefaultModelsCommand(cmd *Command) (ResponseIf, error) {
+	if c.Config.CLIMode != AdminMode || c.AdminServerClient.LoginToken == nil {
+		return nil, fmt.Errorf("this command is only allowed in ADMIN mode or already login")
+	}
+
+	roleName, ok := cmd.Params["role_name"].(string)
+	if !ok {
+		return nil, fmt.Errorf("role_name not provided")
+	}
+
+	modelType, ok := cmd.Params["model_type"].(string)
+	if !ok {
+		return nil, fmt.Errorf("model_type not provided")
+	}
+
+	payload := map[string]interface{}{
+		"model_type": modelType,
+	}
+
+	endPoint := fmt.Sprintf("/admin/roles/%s/default-models", roleName)
+
+	resp, err := c.AdminServerClient.Request("DELETE", endPoint, "admin", nil, payload)
+	if err != nil {
+		return nil, fmt.Errorf("failed to reset role default models: %w", err)
+	}
+
+	if resp.StatusCode != 200 {
+		return nil, fmt.Errorf("failed to reset role default models: HTTP %d, body: %s", resp.StatusCode, string(resp.Body))
+	}
+
+	var result CommonDataResponse
+	if err = json.Unmarshal(resp.Body, &result); err != nil {
+		return nil, fmt.Errorf("reset role default models failed: invalid JSON (%w)", err)
+	}
+
+	if result.Code != 0 {
+		return nil, fmt.Errorf("%s", result.Message)
+	}
+
+	result.Duration = resp.Duration
+	return &result, nil
+}
+
 // AdminDropUserCommand deletes a user (admin mode only)
 func (c *CLI) AdminDropUserCommand(cmd *Command) (ResponseIf, error) {
 	if c.Config.CLIMode != AdminMode || c.AdminServerClient.LoginToken == nil {
@@ -1721,6 +1852,38 @@ func (c *CLI) AdminShowRoleCommand(cmd *Command) (ResponseIf, error) {
 	var result CommonDataResponse
 	if err = json.Unmarshal(resp.Body, &result); err != nil {
 		return nil, fmt.Errorf("show role failed: invalid JSON (%w)", err)
+	}
+
+	if result.Code != 0 {
+		return nil, fmt.Errorf("%s", result.Message)
+	}
+
+	result.Duration = resp.Duration
+	return &result, nil
+}
+
+// AdminShowRoleDefaultModelsCommand show role default models command (admin mode only)
+func (c *CLI) AdminShowRoleDefaultModelsCommand(cmd *Command) (ResponseIf, error) {
+	if c.Config.CLIMode != AdminMode || c.AdminServerClient.LoginToken == nil {
+		return nil, fmt.Errorf("this command is only allowed in ADMIN mode or already login")
+	}
+
+	roleName := cmd.Params["role_name"].(string)
+
+	endPoint := fmt.Sprintf("/admin/roles/%s/default-models", roleName)
+
+	resp, err := c.AdminServerClient.Request("GET", endPoint, "admin", nil, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to show role default models: %w", err)
+	}
+
+	if resp.StatusCode != 200 {
+		return nil, fmt.Errorf("failed to show role default models: HTTP %d, body: %s", resp.StatusCode, string(resp.Body))
+	}
+
+	var result CommonResponse
+	if err = json.Unmarshal(resp.Body, &result); err != nil {
+		return nil, fmt.Errorf("show role default models failed: invalid JSON (%w)", err)
 	}
 
 	if result.Code != 0 {
@@ -3052,6 +3215,276 @@ func (c *CLI) AdminRemoveUserIngestionTasksCommand(cmd *Command) (ResponseIf, er
 	var result CommonResponse
 	if err = json.Unmarshal(resp.Body, &result); err != nil {
 		return nil, fmt.Errorf("remove user %s ingestion tasks failed: invalid JSON (%w)", userName, err)
+	}
+
+	if result.Code != 0 {
+		return nil, fmt.Errorf("%s", result.Message)
+	}
+
+	result.Duration = resp.Duration
+	return &result, nil
+}
+
+// AdminAddProviderCommand add provider
+func (c *CLI) AdminAddProviderCommand(cmd *Command) (ResponseIf, error) {
+
+	if c.Config.CLIMode != AdminMode || c.AdminServerClient.LoginToken == nil {
+		return nil, fmt.Errorf("this command is only allowed in ADMIN mode or already login")
+	}
+
+	providerName, ok := cmd.Params["provider_name"].(string)
+	if !ok {
+		return nil, fmt.Errorf("provider_name not provided")
+	}
+
+	payload := map[string]interface{}{
+		"provider_name": providerName,
+	}
+
+	apiURL := fmt.Sprintf("/admin/providers")
+
+	resp, err := c.AdminServerClient.Request("POST", apiURL, "admin", nil, payload)
+	if err != nil {
+		return nil, fmt.Errorf("failed to add provider %s: %w", providerName, err)
+	}
+
+	if resp.StatusCode != 200 {
+		return nil, fmt.Errorf("failed to add provider %s: HTTP %d, body: %s", providerName, resp.StatusCode, string(resp.Body))
+	}
+
+	var result CommonDataResponse
+	if err = json.Unmarshal(resp.Body, &result); err != nil {
+		return nil, fmt.Errorf("add provider %s failed: invalid JSON (%w)", providerName, err)
+	}
+
+	if result.Code != 0 {
+		return nil, fmt.Errorf("%s", result.Message)
+	}
+
+	result.Duration = resp.Duration
+	return &result, nil
+}
+
+// AdminAddModelInstanceCommand add model instance
+func (c *CLI) AdminAddModelInstanceCommand(cmd *Command) (ResponseIf, error) {
+
+	if c.Config.CLIMode != AdminMode || c.AdminServerClient.LoginToken == nil {
+		return nil, fmt.Errorf("this command is only allowed in ADMIN mode or already login")
+	}
+
+	providerName, ok := cmd.Params["provider_name"].(string)
+	if !ok {
+		return nil, fmt.Errorf("provider_name not provided")
+	}
+
+	instanceName, ok := cmd.Params["instance_name"].(string)
+	if !ok {
+		return nil, fmt.Errorf("instance_name not provided")
+	}
+
+	payload := map[string]interface{}{
+		"instance_name": instanceName,
+	}
+
+	apiURL := fmt.Sprintf("/admin/providers/%s/instances", providerName)
+
+	resp, err := c.AdminServerClient.Request("POST", apiURL, "admin", nil, payload)
+	if err != nil {
+		return nil, fmt.Errorf("failed to add model instance %s: %w", instanceName, err)
+	}
+
+	if resp.StatusCode != 200 {
+		return nil, fmt.Errorf("failed to add model instance %s: HTTP %d, body: %s", instanceName, resp.StatusCode, string(resp.Body))
+	}
+
+	var result CommonDataResponse
+	if err = json.Unmarshal(resp.Body, &result); err != nil {
+		return nil, fmt.Errorf("add model instance %s failed: invalid JSON (%w)", instanceName, err)
+	}
+
+	if result.Code != 0 {
+		return nil, fmt.Errorf("%s", result.Message)
+	}
+
+	result.Duration = resp.Duration
+	return &result, nil
+}
+
+// AdminAddModelsCommand add models
+func (c *CLI) AdminAddModelsCommand(cmd *Command) (ResponseIf, error) {
+
+	if c.Config.CLIMode != AdminMode || c.AdminServerClient.LoginToken == nil {
+		return nil, fmt.Errorf("this command is only allowed in ADMIN mode or already login")
+	}
+
+	providerName, ok := cmd.Params["provider_name"].(string)
+	if !ok {
+		return nil, fmt.Errorf("provider_name not provided")
+	}
+
+	instanceName, ok := cmd.Params["instance_name"].(string)
+	if !ok {
+		return nil, fmt.Errorf("instance_name not provided")
+	}
+
+	modelNames, ok := cmd.Params["model_names"].([]string)
+	if !ok {
+		return nil, fmt.Errorf("model_names not provided")
+	}
+
+	payload := map[string]interface{}{
+		"model_names": modelNames,
+	}
+
+	apiURL := fmt.Sprintf("/admin/providers/%s/instances/%s/models", providerName, instanceName)
+
+	resp, err := c.AdminServerClient.Request("POST", apiURL, "admin", nil, payload)
+	if err != nil {
+		return nil, fmt.Errorf("failed to add models %s: %w", modelNames, err)
+	}
+
+	if resp.StatusCode != 200 {
+		return nil, fmt.Errorf("failed to add models %s: HTTP %d, body: %s", modelNames, resp.StatusCode, string(resp.Body))
+	}
+
+	var result CommonDataResponse
+	if err = json.Unmarshal(resp.Body, &result); err != nil {
+		return nil, fmt.Errorf("add models %s failed: invalid JSON (%w)", modelNames, err)
+	}
+
+	if result.Code != 0 {
+		return nil, fmt.Errorf("%s", result.Message)
+	}
+
+	result.Duration = resp.Duration
+	return &result, nil
+}
+
+// AdminDeleteProvidersCommand delete providers
+func (c *CLI) AdminDeleteProvidersCommand(cmd *Command) (ResponseIf, error) {
+
+	if c.Config.CLIMode != AdminMode || c.AdminServerClient.LoginToken == nil {
+		return nil, fmt.Errorf("this command is only allowed in ADMIN mode or already login")
+	}
+
+	providerNames, ok := cmd.Params["provider_names"].([]string)
+	if !ok {
+		return nil, fmt.Errorf("provider_names not provided")
+	}
+
+	payload := map[string]interface{}{
+		"provider_names": providerNames,
+	}
+
+	apiURL := fmt.Sprintf("/admin/providers/")
+
+	resp, err := c.AdminServerClient.Request("DELETE", apiURL, "admin", nil, payload)
+	if err != nil {
+		return nil, fmt.Errorf("failed to remove providers %s: %w", providerNames, err)
+	}
+
+	if resp.StatusCode != 200 {
+		return nil, fmt.Errorf("failed to remove providers %s: HTTP %d, body: %s", providerNames, resp.StatusCode, string(resp.Body))
+	}
+
+	var result CommonDataResponse
+	if err = json.Unmarshal(resp.Body, &result); err != nil {
+		return nil, fmt.Errorf("remove providers %s failed: invalid JSON (%w)", providerNames, err)
+	}
+
+	if result.Code != 0 {
+		return nil, fmt.Errorf("%s", result.Message)
+	}
+
+	result.Duration = resp.Duration
+	return &result, nil
+}
+
+// AdminDeleteInstancesCommand delete instances
+func (c *CLI) AdminDeleteInstancesCommand(cmd *Command) (ResponseIf, error) {
+
+	if c.Config.CLIMode != AdminMode || c.AdminServerClient.LoginToken == nil {
+		return nil, fmt.Errorf("this command is only allowed in ADMIN mode or already login")
+	}
+
+	providerName, ok := cmd.Params["provider_name"].(string)
+	if !ok {
+		return nil, fmt.Errorf("provider_name not provided")
+	}
+
+	instanceNames, ok := cmd.Params["instance_names"].([]string)
+	if !ok {
+		return nil, fmt.Errorf("instance_name not provided")
+	}
+
+	payload := map[string]interface{}{
+		"instance_names": instanceNames,
+	}
+
+	apiURL := fmt.Sprintf("/admin/providers/%s/instances", providerName)
+
+	resp, err := c.AdminServerClient.Request("DELETE", apiURL, "admin", nil, payload)
+	if err != nil {
+		return nil, fmt.Errorf("failed to remove instance %s: %w", instanceNames, err)
+	}
+
+	if resp.StatusCode != 200 {
+		return nil, fmt.Errorf("failed to remove instance %s: HTTP %d, body: %s", instanceNames, resp.StatusCode, string(resp.Body))
+	}
+
+	var result CommonDataResponse
+	if err = json.Unmarshal(resp.Body, &result); err != nil {
+		return nil, fmt.Errorf("remove instance %s failed: invalid JSON (%w)", instanceNames, err)
+	}
+
+	if result.Code != 0 {
+		return nil, fmt.Errorf("%s", result.Message)
+	}
+
+	result.Duration = resp.Duration
+	return &result, nil
+}
+
+// AdminDeleteModelsCommand delete models
+func (c *CLI) AdminDeleteModelsCommand(cmd *Command) (ResponseIf, error) {
+
+	if c.Config.CLIMode != AdminMode || c.AdminServerClient.LoginToken == nil {
+		return nil, fmt.Errorf("this command is only allowed in ADMIN mode or already login")
+	}
+
+	providerName, ok := cmd.Params["provider_name"].(string)
+	if !ok {
+		return nil, fmt.Errorf("provider_name not provided")
+	}
+
+	instanceName, ok := cmd.Params["instance_name"].(string)
+	if !ok {
+		return nil, fmt.Errorf("instance_name not provided")
+	}
+
+	modelNames, ok := cmd.Params["model_names"].([]string)
+	if !ok {
+		return nil, fmt.Errorf("model_names not provided")
+	}
+
+	payload := map[string]interface{}{
+		"model_names": modelNames,
+	}
+
+	apiURL := fmt.Sprintf("/admin/providers/%s/instances/%s/models", providerName, instanceName)
+
+	resp, err := c.AdminServerClient.Request("DELETE", apiURL, "admin", nil, payload)
+	if err != nil {
+		return nil, fmt.Errorf("failed to remove model %s: %w", modelNames, err)
+	}
+
+	if resp.StatusCode != 200 {
+		return nil, fmt.Errorf("failed to remove model %s: HTTP %d, body: %s", modelNames, resp.StatusCode, string(resp.Body))
+	}
+
+	var result CommonDataResponse
+	if err = json.Unmarshal(resp.Body, &result); err != nil {
+		return nil, fmt.Errorf("remove model %s failed: invalid JSON (%w)", modelNames, err)
 	}
 
 	if result.Code != 0 {
