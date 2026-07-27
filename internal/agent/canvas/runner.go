@@ -14,7 +14,7 @@
 //  limitations under the License.
 //
 
-// runner.go — Canvas execution runtime. Drives a Canvas invocation
+// Package canvas runner.go — Canvas execution runtime. Drives a Canvas invocation
 // (the caller supplies the RunFunc that does Compile+Invoke), catches
 // the four possible outcomes, and surfaces them as RunEvent values on
 // a channel that the HTTP layer streams as SSE frames.
@@ -44,7 +44,6 @@
 //   - RunEvent.Type == "message"          → {data: <string>}
 //   - RunEvent.Type == "waiting_for_user" → {cpn_id: <string>}
 //   - RunEvent.Type == "error"            → {message: <string>}
-//   - RunEvent.Type == "done"             → final terminator frame
 package canvas
 
 import (
@@ -52,13 +51,15 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log"
+	"ragflow/internal/utility"
 	"runtime/debug"
-	"strings"
 	"sync"
 	"time"
 
-	"github.com/google/uuid"
+	"go.uber.org/zap"
+
+	"ragflow/internal/agent/runtime"
+	"ragflow/internal/common"
 )
 
 // RunEvent is the unit the Runner pushes onto its output channel.
@@ -105,15 +106,18 @@ type NodeFinishedData struct {
 
 // MessageEvent is the JSON payload for Type=="message" frames.
 type MessageEvent struct {
-	Content   string        `json:"content"`
-	Reference []interface{} `json:"reference,omitempty"`
+	Content      string      `json:"content"`
+	Reference    interface{} `json:"reference,omitempty"`
+	Thinking     string      `json:"thinking,omitempty"`
+	StartToThink bool        `json:"start_to_think,omitempty"`
+	EndToThink   bool        `json:"end_to_think,omitempty"`
 }
 
 // MessageEndEvent is the JSON payload for Type=="message_end" frames.
 type MessageEndEvent struct {
 	Status     *string       `json:"status,omitempty"`
 	Attachment []interface{} `json:"attachment,omitempty"`
-	Reference  []interface{} `json:"reference,omitempty"`
+	Reference  interface{}   `json:"reference,omitempty"`
 }
 
 // WaitingForUserEvent is the JSON payload for Type=="waiting_for_user"
@@ -219,7 +223,8 @@ func (r *Runner) getInterruptID(canvasID, sessionID string) string {
 func (r *Runner) Run(
 	ctx context.Context,
 	run RunFunc,
-	canvasID, sessionID, userInput string,
+	canvasID, sessionID string,
+	userInput any,
 	root map[string]any,
 ) <-chan RunEvent {
 	out := make(chan RunEvent, 8)
@@ -246,13 +251,13 @@ func (r *Runner) Run(
 	// message_id is generated per-run so the front-end can correlate
 	// all events for a single user turn. task_id is the published
 	// version id (if available) or a per-run UUID.
-	messageID := strings.ReplaceAll(uuid.New().String(), "-", "")
+	messageID := utility.GenerateToken()
 	taskID := ""
 	if v, ok := root["version_id"].(string); ok && v != "" {
 		taskID = v
 	}
 	if taskID == "" {
-		taskID = strings.ReplaceAll(uuid.New().String(), "-", "")
+		taskID = utility.GenerateToken()
 	}
 
 	// Inject the output channel + metadata so the RunFunc can emit
@@ -280,7 +285,10 @@ func (r *Runner) Run(
 		// surfaces a clear root cause in the server log.
 		defer func() {
 			if rec := recover(); rec != nil {
-				log.Printf("canvas runner PANIC canvas=%q session=%q: %v\n%s", canvasID, sessionID, rec, debug.Stack())
+				common.Error("canvas runner PANIC", fmt.Errorf("%v", rec),
+					zap.String("canvas", canvasID),
+					zap.String("session", sessionID),
+					zap.String("stack", string(debug.Stack())))
 			}
 		}()
 
@@ -290,7 +298,7 @@ func (r *Runner) Run(
 		// invoking the workflow. The sentinel keys are deleted from
 		// root inside the RunFunc — see service/agent.go's
 		// buildRunFunc.
-		if userInput != "" {
+		if userInput != nil {
 			if id := r.getInterruptID(canvasID, sessionID); id != "" {
 				root["__resume_interrupt_id__"] = id
 				root["__resume_data__"] = userInput
@@ -309,7 +317,13 @@ func (r *Runner) Run(
 				// the prompt to the visible waiting node.
 				displayID := FirstInterruptID(ctxs)
 				resumeID := RootInterruptID(ctxs)
-				log.Printf("canvas runner interrupt canvas=%q session=%q task=%q contexts=%s display=%q resume=%q", canvasID, sessionID, taskID, formatInterruptContexts(ctxs), displayID, resumeID)
+				common.Info("canvas runner interrupt",
+					zap.String("canvas", canvasID),
+					zap.String("session", sessionID),
+					zap.String("task", taskID),
+					zap.String("contexts", formatInterruptContexts(ctxs)),
+					zap.String("display", displayID),
+					zap.String("resume", resumeID))
 				r.saveInterruptID(canvasID, sessionID, resumeID)
 				waiting := WaitingForUserEvent{CpnID: displayID}
 				if ctx := FirstUserFillUpInterrupt(ctxs); ctx != nil {
@@ -322,13 +336,7 @@ func (r *Runner) Run(
 						}
 					}
 				}
-				payload, _ := json.Marshal(waiting)
-				push(out, RunEvent{Type: "waiting_for_user", Data: string(payload), MessageID: messageID, CreatedAt: nowUnix(), TaskID: taskID, SessionID: sessionID})
-				// Always close a RunAgent call with the `done`
-				// terminator so the front-end can rely on a
-				// channel-end sentinel regardless of whether the run
-				// completed, errored, or paused for user input.
-				push(out, RunEvent{Type: "done", Data: "", MessageID: messageID, CreatedAt: nowUnix(), TaskID: taskID, SessionID: sessionID})
+				push(out, RunEvent{Type: "waiting_for_user", Data: safeEventJSON(waiting), MessageID: messageID, CreatedAt: nowUnix(), TaskID: taskID, SessionID: sessionID})
 				return
 			}
 			if IsInterruptError(runErr) {
@@ -337,24 +345,12 @@ func (r *Runner) Run(
 				// without a cpn id — the front-end falls back to
 				// the first paused session it knows about.
 				r.saveInterruptID(canvasID, sessionID, runErr.Error())
-				payload, _ := json.Marshal(WaitingForUserEvent{CpnID: runErr.Error()})
-				push(out, RunEvent{Type: "waiting_for_user", Data: string(payload), MessageID: messageID, CreatedAt: nowUnix(), TaskID: taskID, SessionID: sessionID})
-				push(out, RunEvent{Type: "done", Data: "", MessageID: messageID, CreatedAt: nowUnix(), TaskID: taskID, SessionID: sessionID})
+				push(out, RunEvent{Type: "waiting_for_user", Data: safeEventJSON(WaitingForUserEvent{CpnID: runErr.Error()}), MessageID: messageID, CreatedAt: nowUnix(), TaskID: taskID, SessionID: sessionID})
 				return
 			}
 			pushErr(out, runErr.Error())
-			// Close the channel with the `done` terminator so the
-			// front-end sees a channel-end sentinel on the error
-			// path too — matches the contract for completed and
-			// waiting-for-user paths above.
-			push(out, RunEvent{Type: "done", Data: "", MessageID: messageID, CreatedAt: nowUnix(), TaskID: taskID, SessionID: sessionID})
 			return
 		}
-
-		// Normal completion — the buildRunFunc already emitted the
-		// workflow events during execution. Runner just sends the
-		// terminator.
-		push(out, RunEvent{Type: "done", Data: "", MessageID: messageID, CreatedAt: nowUnix(), TaskID: taskID, SessionID: sessionID})
 	}()
 
 	return out
@@ -409,7 +405,8 @@ func safeInvoke(ctx context.Context, cancel chan struct{}, run RunFunc, root map
 		// runner emit a terminal `done` event.
 		defer func() {
 			if rec := recover(); rec != nil {
-				log.Printf("canvas runner PANIC: %v\n%s", rec, debug.Stack())
+				common.Error("canvas runner PANIC", fmt.Errorf("%v", rec),
+					zap.String("stack", string(debug.Stack())))
 				err = fmt.Errorf("canvas runner panic: %v", rec)
 			}
 			close(done)
@@ -444,8 +441,34 @@ func push(out chan<- RunEvent, ev RunEvent) {
 
 // pushErr serialises an ErrorEvent and pushes it on the channel.
 func pushErr(out chan<- RunEvent, msg string) {
-	payload, _ := json.Marshal(ErrorEvent{Message: msg})
+	payload, err := json.Marshal(ErrorEvent{Message: msg})
+	if err != nil {
+		common.Warn("runner: pushErr json.Marshal failed, falling back",
+			zap.Error(err))
+		// ErrorEvent only has a string field; this should never fail.
+		// Fall back to a hard-coded minimal JSON.
+		payload = []byte(`{"message":"event serialization failed"}`)
+	}
 	push(out, RunEvent{Type: "error", Data: string(payload)})
+}
+
+// safeEventJSON marshals v to a JSON string, falling back to
+// runtime.SafeJSONMarshal when the value contains non-serializable
+// types (funcs, channels). Mirrors the Python PR #14210
+// _canvas_json_default fallback for SSE event serialization.
+func safeEventJSON(v any) string {
+	b, err := json.Marshal(v)
+	if err != nil {
+		common.Warn("runner: json.Marshal event payload failed, trying SafeJSONMarshal",
+			zap.Error(err))
+		b, err = runtime.SafeJSONMarshal(v)
+		if err != nil {
+			common.Error("runner: SafeJSONMarshal also failed, using fallback",
+				err)
+			b = []byte(`{"message":"event serialization failed"}`)
+		}
+	}
+	return string(b)
 }
 
 // nowUnix returns the current Unix timestamp in seconds.

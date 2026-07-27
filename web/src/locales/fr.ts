@@ -60,7 +60,7 @@ export default {
       submit: 'Soumettre',
       clear: 'Effacer',
       embedIntoSite: 'Intégrer dans la page web',
-      openInNewTab: 'Chat dans un nouvel onglet',
+      openInNewTab: 'Ouvrir dans un nouvel onglet',
       previousPage: 'Précédent',
       nextPage: 'Suivant',
       previous: 'Précédent',
@@ -81,6 +81,8 @@ export default {
       selected: 'Sélectionné',
       seeAll: 'Voir tout',
       bulkOperate: 'Opération en masse',
+      owner: 'Propriétaire',
+      running: 'En cours...',
     },
     login: {
       loginTitle: 'Connexion à votre compte',
@@ -468,7 +470,6 @@ export default {
       metadata: {
         fields: 'Champs',
         selectFiles: '{{count}} fichiers sélectionnés',
-        type: 'Type',
         fieldNameInvalid:
           'Le nom du champ ne peut contenir que des lettres ou des underscores.',
         builtIn: 'Intégré',
@@ -500,6 +501,7 @@ export default {
         value: 'Valeur',
         action: 'Action',
         field: 'Champ',
+        type: 'Type',
         description: 'Description',
         fieldName: 'Nom du champ',
         editMetadata: 'Modifier les métadonnées',
@@ -895,6 +897,8 @@ Applicable lorsque vous avez besoin que le LLM résume le document entier.
       size: 'Taille',
       uploadedTime: 'Date de téléversement',
       chunk: 'Segment',
+      createChunk: 'Créer un segment',
+      editChunk: 'Modifier le segment',
       bulk: 'En masse',
       selectAll: 'Tout sélectionner',
       enabledSelected: 'Activer la sélection',
@@ -1115,6 +1119,12 @@ Applicable lorsque vous avez besoin que le LLM résume le document entier.
       batchDeleteSessions: 'Suppression en masse',
       deleteSelectedConfirm:
         'Supprimer les {{count}} session(s) sélectionnée(s) ?',
+      showChunkMetadata: 'Afficher les métadonnées du segment',
+      showChunkMetadataTip:
+        "Afficher les métadonnées du document (titre, numéro de page, date d'upload, etc.) à côté des segments de texte récupérés",
+      metadataFields: 'Champs de métadonnées',
+      metadataFieldsTip:
+        'Sélectionnez les champs de métadonnées à afficher pour chaque segment',
     },
     language: {
       english: 'Anglais',
@@ -1279,7 +1289,7 @@ Applicable lorsque vous avez besoin que le LLM résume le document entier.
       modelType: 'Type de modèle',
       modelTypeMessage: 'Veuillez saisir le type de votre modèle !',
       addLlmBaseUrl: 'URL de base',
-      baseUrlNameMessage: 'Veuillez saisir votre URL de base !',
+      baseUrlNameMessage: 'Veuillez saisir votre URL de base',
       paddleocr: {
         apiUrl: "URL de l'API PaddleOCR",
         apiUrlPlaceholder:
@@ -1301,13 +1311,13 @@ Applicable lorsque vous avez besoin que le LLM résume le document entier.
       endpointIDMessage: 'Veuillez saisir le Model ID du modèle',
       addArkApiKey: 'VOLC ARK_API_KEY',
       ArkApiKeyMessage: 'Veuillez saisir votre ARK_API_KEY',
-      bedrockModelNameMessage: 'Veuillez saisir le nom de votre modèle !',
+      bedrockModelNameMessage: 'Veuillez saisir le nom de votre modèle',
       addBedrockEngineAK: "CLÉ D'ACCÈS",
       bedrockAKMessage: "Veuillez saisir votre CLÉ D'ACCÈS",
       addBedrockSK: 'CLÉ SECRÈTE',
       bedrockSKMessage: 'Veuillez saisir votre CLÉ SECRÈTE',
       bedrockRegion: 'Région AWS',
-      bedrockRegionMessage: 'Veuillez sélectionner !',
+      bedrockRegionMessage: 'Veuillez sélectionner',
       'us-east-1': 'US Est (Virginie du Nord)',
       'us-west-2': 'US Ouest (Oregon)',
       'ap-southeast-1': 'Asie Pacifique (Singapour)',
@@ -1315,8 +1325,8 @@ Applicable lorsque vous avez besoin que le LLM résume le document entier.
       'eu-central-1': 'Europe (Francfort)',
       'us-gov-west-1': 'AWS GovCloud (US-Ouest)',
       'ap-southeast-2': 'Asie Pacifique (Sydney)',
-      addTencentCloudSID: 'ID secret TencentCloud',
-      TencentCloudSIDMessage: 'Veuillez saisir votre ID secret',
+      addTencentCloudSID: 'ID SECRET TencentCloud',
+      TencentCloudSIDMessage: 'Veuillez saisir votre ID SECRET',
       addTencentCloudSK: 'Clé secrète TencentCloud',
       TencentCloudSKMessage: 'Veuillez saisir votre clé secrète',
       SparkModelNameMessage: 'Veuillez sélectionner un modèle Spark',
@@ -1324,8 +1334,8 @@ Applicable lorsque vous avez besoin que le LLM résume le document entier.
       SparkAPIPasswordMessage: 'Veuillez saisir votre mot de passe API',
       addSparkAPPID: 'ID application Spark',
       SparkAPPIDMessage: 'Veuillez saisir votre ID application',
-      addSparkAPISecret: 'Secret API Spark',
-      SparkAPISecretMessage: 'Veuillez saisir votre secret API',
+      addSparkAPISecret: 'SECRET API Spark',
+      SparkAPISecretMessage: 'Veuillez saisir votre SECRET API',
       addSparkAPIKey: 'Clé API Spark',
       SparkAPIKeyMessage: 'Veuillez saisir votre clé API',
       yiyanModelNameMessage: 'Veuillez saisir le nom du modèle',
@@ -2787,7 +2797,7 @@ Les informations structurées importantes peuvent inclure : noms, dates, lieux, 
         username: "Nom d'utilisateur",
         password: 'Mot de passe',
         algorithm: 'Algorithme',
-        secret: 'Secret',
+        secret: 'SECRET',
         issuer: 'Émetteur',
         audience: 'Audience',
         requiredClaims: 'Claims requis',
@@ -2892,6 +2902,8 @@ Ce processus agrège des variables de plusieurs branches en une seule variable p
       news: 'Actualités',
       text: 'Texte',
       userId: 'ID utilisateur',
+      tags: 'Étiquettes',
+      canvasCategory: 'Catégorie de canvas',
     },
     llmTools: {
       bad_calculator: {
@@ -2978,6 +2990,7 @@ Mémoire procédurale : compétences acquises, habitudes et procédures automati
       cancelText: 'Annuler',
       chooseDataset:
         'Veuillez sélectionner une base de connaissances en premier',
+      selectLocalePlaceholder: 'Sélectionner une langue',
     },
     pagination: {
       total: 'Total {{total}}',

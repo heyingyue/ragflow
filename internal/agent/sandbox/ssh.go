@@ -50,6 +50,7 @@ import (
 	"net"
 	"os"
 	"path"
+	"ragflow/internal/common"
 	"strconv"
 	"strings"
 	"sync"
@@ -57,6 +58,7 @@ import (
 
 	"github.com/google/uuid"
 	"golang.org/x/crypto/ssh"
+	"golang.org/x/crypto/ssh/knownhosts"
 )
 
 // sshDefaultTimeout / sshDefaultPort mirror the Python provider
@@ -88,6 +90,7 @@ type SSHProvider struct {
 	maxOutputBytes   int
 	maxArtifacts     int
 	maxArtifactBytes int
+	knownHosts       string
 
 	mu          sync.Mutex
 	instances   map[string]*sshInstance
@@ -110,23 +113,26 @@ func newSSHProviderFromEnv() *SSHProvider {
 
 // sshConfigFromEnv builds a config map from the SSH_* env vars.
 // PRIVATE_KEY is the literal key contents; PRIVATE_KEY_PATH is
-// a path on disk (read at provider-init time).
+// a path on disk (read at provider-init time). KNOWN_HOSTS is the
+// path to an OpenSSH-format known_hosts file used to verify the
+// remote host's key (fail-closed when unset).
 func sshConfigFromEnv() map[string]any {
 	return map[string]any{
-		"HOST":               os.Getenv("SSH_HOST"),
-		"PORT":               os.Getenv("SSH_PORT"),
-		"USERNAME":           os.Getenv("SSH_USERNAME"),
-		"PASSWORD":           os.Getenv("SSH_PASSWORD"),
-		"PRIVATE_KEY":        os.Getenv("SSH_PRIVATE_KEY"),
-		"PRIVATE_KEY_PATH":   os.Getenv("SSH_PRIVATE_KEY_PATH"),
-		"PASSPHRASE":         os.Getenv("SSH_PASSPHRASE"),
-		"PYTHON_BIN":         os.Getenv("SSH_PYTHON_BIN"),
-		"NODE_BIN":           os.Getenv("SSH_NODE_BIN"),
-		"WORK_DIR":           os.Getenv("SSH_WORK_DIR"),
-		"TIMEOUT":            os.Getenv("SSH_TIMEOUT"),
-		"MAX_OUTPUT_BYTES":   os.Getenv("SSH_MAX_OUTPUT_BYTES"),
-		"MAX_ARTIFACTS":      os.Getenv("SSH_MAX_ARTIFACTS"),
-		"MAX_ARTIFACT_BYTES": os.Getenv("SSH_MAX_ARTIFACT_BYTES"),
+		"HOST":               common.GetEnv(common.EnvSSHHost),
+		"PORT":               common.GetEnv(common.EnvSSHPort),
+		"USERNAME":           common.GetEnv(common.EnvSSHUsername),
+		"PASSWORD":           common.GetEnv(common.EnvSSHPassword),
+		"PRIVATE_KEY":        common.GetEnv(common.EnvSSHPrivateKey),
+		"PRIVATE_KEY_PATH":   common.GetEnv(common.EnvSSHPrivateKeyPath),
+		"PASSPHRASE":         common.GetEnv(common.EnvSSHPassphrase),
+		"PYTHON_BIN":         common.GetEnv(common.EnvSSHPythonBin),
+		"NODE_BIN":           common.GetEnv(common.EnvSSHNodeBin),
+		"WORK_DIR":           common.GetEnv(common.EnvSSHWorkDir),
+		"TIMEOUT":            common.GetEnv(common.EnvSSHTimeout),
+		"MAX_OUTPUT_BYTES":   common.GetEnv(common.EnvSSHMaxOutputBytes),
+		"MAX_ARTIFACTS":      common.GetEnv(common.EnvSSHMaxArtifacts),
+		"MAX_ARTIFACT_BYTES": common.GetEnv(common.EnvSSHMaxArtifactBytes),
+		"KNOWN_HOSTS":        common.GetEnv(common.EnvSSHKnownHosts),
 	}
 }
 
@@ -134,7 +140,9 @@ func sshConfigFromEnv() map[string]any {
 // map. Config keys mirror the env-var names without the SSH_
 // prefix. PRIVATE_KEY is the literal key contents (preferred);
 // PRIVATE_KEY_PATH is a filesystem path (loaded here, like the
-// env path).
+// env path). KNOWN_HOSTS is the path to a known_hosts file used
+// to verify the remote host key (required for security; the dial
+// fails closed when unset).
 func newSSHProviderFromConfig(cfg map[string]any) *SSHProvider {
 	p := &SSHProvider{
 		host:             configString(cfg, "HOST"),
@@ -149,6 +157,7 @@ func newSSHProviderFromConfig(cfg map[string]any) *SSHProvider {
 		maxOutputBytes:   configInt(cfg, "MAX_OUTPUT_BYTES", sshDefaultMaxOutput),
 		maxArtifacts:     configInt(cfg, "MAX_ARTIFACTS", sshDefaultMaxArtifacts),
 		maxArtifactBytes: configInt(cfg, "MAX_ARTIFACT_BYTES", sshDefaultMaxArtifact),
+		knownHosts:       configString(cfg, "KNOWN_HOSTS"),
 		instances:        map[string]*sshInstance{},
 	}
 	if p.pythonBin == "" {
@@ -439,10 +448,14 @@ func (p *SSHProvider) dial(ctx context.Context) (*ssh.Client, error) {
 	if len(auth) == 0 {
 		return nil, errors.New("ssh: no auth method configured")
 	}
+	hostKeyCallback, err := p.hostKeyCallback()
+	if err != nil {
+		return nil, err
+	}
 	cfg := &ssh.ClientConfig{
 		User:            p.username,
 		Auth:            auth,
-		HostKeyCallback: ssh.InsecureIgnoreHostKey(), // matches Python paramiko default for development; operators should configure this in production
+		HostKeyCallback: hostKeyCallback,
 		Timeout:         time.Duration(p.timeout) * time.Second,
 	}
 	addr := net.JoinHostPort(p.host, strconv.Itoa(p.port))
@@ -453,10 +466,30 @@ func (p *SSHProvider) dial(ctx context.Context) (*ssh.Client, error) {
 	return client, nil
 }
 
+// hostKeyCallback builds an ssh.HostKeyCallback backed by an OpenSSH
+// known_hosts file. The provider fails closed when no known_hosts
+// path is configured: this protects against man-in-the-middle attacks
+// on the SSH transport used to run sandboxed code.
+func (p *SSHProvider) hostKeyCallback() (ssh.HostKeyCallback, error) {
+	if p.knownHosts == "" {
+		return nil, errors.New("ssh: KNOWN_HOSTS not configured; refusing to connect without host key verification (set SSH_KNOWN_HOSTS)")
+	}
+	callback, err := knownhosts.New(p.knownHosts)
+	if err != nil {
+		return nil, fmt.Errorf("ssh: load known_hosts %q: %w", p.knownHosts, err)
+	}
+	return callback, nil
+}
+
 // runRemoteCommand runs command over SSH and returns
 // (stdout, stderr, exit_code, error). The error is non-nil only
 // for transport-level failures; non-zero exit codes are reported
 // via exit_code, not error.
+//
+// All in-package callers build the command argument via shq(),
+// which single-quote escapes any value so the shell cannot be
+// tricked into re-interpreting it (see remoteMkdirAll,
+// remoteRemoveAll, remoteReadFile, remoteWriteFile, etc).
 func (p *SSHProvider) runRemoteCommand(ctx context.Context, client *ssh.Client, command string, timeoutSec int) (string, string, int, error) {
 	sess, err := client.NewSession()
 	if err != nil {
@@ -466,6 +499,9 @@ func (p *SSHProvider) runRemoteCommand(ctx context.Context, client *ssh.Client, 
 	stdoutBuf, stderrBuf := &strings.Builder{}, &strings.Builder{}
 	sess.Stdout = stdoutBuf
 	sess.Stderr = stderrBuf
+	// from shq()-escaped arguments only (see callers above); user
+	// input never reaches the shell unsanitized.
+	// codeql[go/command-injection] False positive: command is built
 	if err := sess.Run(command); err != nil {
 		// ssh.ExitError carries the remote exit code; we surface
 		// it as a normal non-zero exit (the caller can branch on
