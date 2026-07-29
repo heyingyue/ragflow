@@ -776,22 +776,23 @@ func sameStringSet(a, b []string) bool {
 	return true
 }
 
-// DeleteMemory deletes a memory by ID
-// It also deletes associated message indexes before removing the memory record
+// DeleteMemory deletes a memory by ID after verifying the caller's access.
+// It also deletes associated message indexes before removing the memory record.
 //
 // Parameters:
+//   - userID: The ID of the user requesting the deletion (access control)
 //   - memoryID: The ID of the memory to delete
 //
 // Returns:
-//   - error: Error if memory not found or deletion fails
+//   - error: Error if memory not found, access denied, or deletion fails
 //
 // Example:
 //
-//	err := service.DeleteMemory("memory456")
-func (s *MemoryService) DeleteMemory(ctx context.Context, memoryID string) error {
-	_, err := s.memoryDAO.GetByID(ctx, dao.DB, memoryID)
-	if err != nil {
-		return fmt.Errorf("memory '%s' not found", memoryID)
+//	err := service.DeleteMemory(ctx, "user123", "memory456")
+func (s *MemoryService) DeleteMemory(ctx context.Context, userID, memoryID string) error {
+	// Verify the caller has access to this memory
+	if _, err := s.requireMemoryAccess(ctx, userID, memoryID); err != nil {
+		return err
 	}
 
 	// TODO: Delete associated message index - Implementation pending MessageService
@@ -802,7 +803,7 @@ func (s *MemoryService) DeleteMemory(ctx context.Context, memoryID string) error
 	// }
 
 	// Delete memory record
-	if err = s.memoryDAO.DeleteByID(ctx, dao.DB, memoryID); err != nil {
+	if err := s.memoryDAO.DeleteByID(ctx, dao.DB, memoryID); err != nil {
 		return errors.New("failed to delete memory")
 	}
 
@@ -877,6 +878,18 @@ func (s *MemoryService) AddMessage(ctx context.Context, currentUserID string, me
 			res = &QueueSaveResult{}
 		}
 		res.NotFound = append(missingMemoryIDs, res.NotFound...)
+	}
+	errorMsg := memorySaveErrorMessage(res)
+	if errorMsg != "" {
+		return false, errorMsg, nil
+	}
+	return true, "All add to task.", nil
+}
+
+func (s *MemoryService) saveAgentMessage(ctx context.Context, memoryIDs []string, msg MemoryMessage) (bool, string, error) {
+	res, err := NewMemoryMessageService(s).QueueSaveToMemoryTask(ctx, splitFilterValues(memoryIDs), msg)
+	if err != nil {
+		return false, err.Error(), err
 	}
 	errorMsg := memorySaveErrorMessage(res)
 	if errorMsg != "" {
@@ -1529,19 +1542,30 @@ func ResolveTenantModelDisplayName(ctx context.Context, db *gorm.DB, tenantModel
 	return displayName
 }
 
-// GetMemoryConfig retrieves the full configuration of a memory by ID
+// GetMemoryConfig retrieves the full configuration of a memory by ID after
+// verifying the caller's access.
 //
 // Parameters:
+//   - userID: The ID of the user requesting the configuration (access control)
 //   - memoryID: The ID of the memory to retrieve
 //
 // Returns:
 //   - *CreateMemoryResponse: The memory configuration details
-//   - error: Error if memory not found
+//   - error: Error if memory not found or access denied
 //
 // Example:
 //
-//	resp, err := service.GetMemoryConfig("memory456")
-func (s *MemoryService) GetMemoryConfig(ctx context.Context, memoryID string) (*CreateMemoryResponse, error) {
+//	resp, err := service.GetMemoryConfig(ctx, "user123", "memory456")
+func (s *MemoryService) GetMemoryConfig(ctx context.Context, userID, memoryID string) (*CreateMemoryResponse, error) {
+	if _, err := s.requireMemoryAccess(ctx, userID, memoryID); err != nil {
+		return nil, err
+	}
+	return s.getMemoryConfig(ctx, memoryID)
+}
+
+// getMemoryConfig retrieves the full configuration of a memory without access
+// control checks. This is for trusted internal callers such as queue processing.
+func (s *MemoryService) getMemoryConfig(ctx context.Context, memoryID string) (*CreateMemoryResponse, error) {
 	memory, err := s.memoryDAO.GetWithOwnerNameByID(ctx, dao.DB, memoryID)
 	if err != nil {
 		return nil, fmt.Errorf("memory '%s' not found", memoryID)
