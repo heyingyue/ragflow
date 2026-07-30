@@ -1,5 +1,6 @@
 import { IconFontFill } from '@/components/icon-font';
 import SvgIcon from '@/components/svg-icon';
+import queritLogo from '@/assets/querit.png';
 import { cn } from '@/lib/utils';
 import {
   Columns3Cog,
@@ -9,9 +10,15 @@ import {
   HousePlus,
   Infinity as InfinityIcon,
   LogOut,
+  LucideBlocks,
+  LucideFile,
+  LucideFilePlay,
+  LucideFileStack,
+  LucideHeading,
+  LucideListPlus,
 } from 'lucide-react';
 import { Component } from 'react';
-import { Operator } from './constant';
+import { Operator } from '../constants/agent';
 
 interface IProps {
   name: Operator;
@@ -51,6 +58,7 @@ export const SVGIconMap = {
   [Operator.KeenableSearch]: 'keenable',
   [Operator.TavilyExtract]: 'tavily',
   [Operator.TavilySearch]: 'tavily',
+  [Operator.QueritSearch]: 'querit',
   [Operator.Wikipedia]: 'wikipedia',
   [Operator.YahooFinance]: 'yahoo-finance',
   [Operator.WenCai]: 'wencai',
@@ -62,7 +70,13 @@ export const LucideIconMap = {
   [Operator.ExitLoop]: LogOut,
   [Operator.DocGenerator]: FileText,
   [Operator.Browser]: Globe,
-  [Operator.Compilation]: Columns3Cog,
+  [Operator.Compiler]: Columns3Cog,
+  [Operator.File]: LucideFile,
+  [Operator.Parser]: LucideFilePlay,
+  [Operator.Tokenizer]: LucideListPlus,
+  [Operator.TokenChunker]: LucideBlocks,
+  [Operator.TitleChunker]: LucideHeading,
+  [Operator.Extractor]: LucideFileStack,
 };
 
 const Empty = () => {
@@ -92,6 +106,16 @@ const OperatorIcon = ({ name, className }: IProps) => {
   const Icon = OperatorIconMap[name as keyof typeof OperatorIconMap];
   const svgIcon = SVGIconMap[name as keyof typeof SVGIconMap];
   const LucideIcon = LucideIconMap[name as keyof typeof LucideIconMap];
+
+  if (name === Operator.QueritSearch) {
+    return (
+      <img
+        src={queritLogo}
+        alt=""
+        className={cn('size-5 object-contain', className)}
+      />
+    );
+  }
 
   if (name === Operator.Begin) {
     return (
